@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Tòa Nhà</title>
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <style>
+      body { margin: 0; overflow: hidden; }
+      #hint {
+        position: fixed; left: 0; right: 0; bottom: 16px; z-index: 10;
+        text-align: center; color: #fff; font: 14px sans-serif;
+        text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hint">Hướng camera vào mặt tiền tòa nhà · Chạm màn hình để bật tiếng</div>
+
+    <a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
+             color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights"
+             vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+
+      <a-assets>
+        <video id="video" src="./video.mp4" loop crossorigin="anonymous" playsinline webkit-playsinline muted preload="auto"></video>
+      </a-assets>
+
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+      <a-entity mindar-image-target="targetIndex: 0">
+        <!-- Marker của bạn: 1021 x 681 px (tỉ lệ 1.499). Rộng 1 = đúng bề ngang marker.
+             Chiều cao mặc định 0.667 = phủ vừa mặt tiền; sẽ tự chỉnh theo tỉ lệ video bên dưới. -->
+        <a-video id="screen" src="#video" width="1" height="0.667" position="0 0 0" rotation="0 0 0"></a-video>
+      </a-entity>
+    </a-scene>
+
+    <script>
+      const video  = document.querySelector('#video');
+      const screen = document.querySelector('#screen');
+      const target = document.querySelector('[mindar-image-target]');
+
+      // Đặt true nếu muốn video phủ kín cả marker (có thể bị méo nếu khác tỉ lệ 3:2)
+      const FILL_MARKER = false;
+
+
+      // Tự chỉnh chiều cao theo tỉ lệ thật của video để không bị méo
+      video.addEventListener('loadedmetadata', () => {
+        if (FILL_MARKER || !video.videoWidth) return;
+        screen.setAttribute('height', video.videoHeight / video.videoWidth);
+      });
+
+      target.addEventListener('targetFound', () => { video.play().catch(() => {}); });
+      target.addEventListener('targetLost',  () => { video.pause(); });
+
+      // Trình duyệt chặn tiếng tự động: chạm màn hình 1 lần để bật tiếng
+      document.body.addEventListener('click', () => {
+        video.muted = false;
+        document.getElementById('hint').style.display = 'none';
+      }, { once: true });
+    </script>
+  </body>
+</html>
