@@ -102,7 +102,7 @@ AFRAME.registerComponent('world-lock', {
     anchor.addEventListener('targetFound', () => {
       this.locked = false;
       root.object3D.visible = false;
-      hint.textContent = 'Đã nhận diện logo';
+      hint.style.display = 'none'; // ẩn dòng chữ hướng dẫn khi đã quét trúng logo
     });
 
     anchor.addEventListener('targetLost', () => {
@@ -111,7 +111,7 @@ AFRAME.registerComponent('world-lock', {
       this.computeDeviceQuat(this.q0);
       this.locked = true;
       root.object3D.visible = true;
-      hint.textContent = 'Video đã được khóa tại vị trí. Quét lại logo để cập nhật.';
+      // không hiện chữ gì khi mất logo (video vẫn giữ nguyên vị trí)
     });
   },
 
@@ -149,14 +149,13 @@ function fitVideo() {
 videoEl.addEventListener('loadedmetadata', fitVideo);
 if (videoEl.readyState >= 1) fitVideo();
 
-/* ====== TRẠNG THÁI VIDEO (dòng chữ vàng góc trên) ====== */
-const SHOW_DIAG = true; // đổi thành false khi đã chạy ổn để ẩn dòng chữ vàng
+/* ====== THÔNG BÁO LỖI VIDEO (dòng chữ vàng góc trên, mặc định ẩn) ====== */
+const SHOW_DIAG = true; // đổi thành false để tắt hẳn cả thông báo lỗi
 const diag = document.getElementById('diag');
 if (!SHOW_DIAG) diag.style.display = 'none';
 const say = (t) => { diag.textContent = t; };
-say('Video: đang tải…');
-videoEl.addEventListener('loadedmetadata', () => say('Video: đã tải ' + videoEl.videoWidth + 'x' + videoEl.videoHeight));
-videoEl.addEventListener('playing', () => say('Video: đang phát'));
+// Dòng chữ vàng chỉ hiện khi có sự cố (lỗi video, hoặc cần chạm để phát); video phát bình thường thì tự ẩn.
+videoEl.addEventListener('playing', () => say(''));
 videoEl.addEventListener('error', () => {
   const c = videoEl.error ? videoEl.error.code : '?';
   say('Video LỖI (mã ' + c + '): ' + (c === 4 ? 'không tìm thấy video.mp4 hoặc định dạng không hỗ trợ' : 'không tải được video'));
