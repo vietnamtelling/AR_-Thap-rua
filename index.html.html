@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>AR Viet Nam Telling</title>
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<style>
+  /* QUAN TRỌNG: chỉ để nền đen ở html. Nếu body cũng có nền đen, nó sẽ che mất hình camera. */
+  html { background: #000; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { background: transparent; }
+  #start {
+    position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center;
+    background: rgba(0,0,0,.85); color: #fff; font: 16px/1.5 sans-serif;
+  }
+  #start button { font-size: 18px; padding: 14px 32px; border: 0; border-radius: 10px; background: #e6b800; color: #000; }
+  #diag {
+    position: fixed; left: 8px; top: 8px; z-index: 5; color: #ff0; font: 12px sans-serif;
+    text-shadow: 0 0 3px #000; pointer-events: none; max-width: 90%;
+  }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: 18px; z-index: 5; text-align: center;
+    color: #fff; font: 14px sans-serif; text-shadow: 0 0 4px #000; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="start">
+  <div>Hướng camera vào logo <b>Viet Nam Telling</b>, quét 1 lần.<br>Sau đó bạn có thể xoay điện thoại đi hướng khác, video vẫn giữ nguyên vị trí.</div>
+  <button id="startBtn">Bắt đầu</button>
+</div>
+<div id="hint">Đang chờ quét logo…</div>
+<div id="diag"></div>
+
+<a-scene
+  mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiScanning: no; uiLoading: no;
+                filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 5; warmupTolerance: 5;"
+  color-space="sRGB"
+  renderer="colorManagement: true; physicallyCorrectLights: true"
+  vr-mode-ui="enabled: false"
+  device-orientation-permission-ui="enabled: false"
+  world-lock="anchor: #anchor; root: #lockroot">
+
+  <a-assets>
+    <video id="video" src="./video.mp4" preload="auto" loop playsinline webkit-playsinline crossorigin="anonymous"></video>
+  </a-assets>
+
+  <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false" cursor="rayOrigin: mouse"></a-camera>
+
+  <!-- Logo là ảnh vuông 1024x1024 nên rộng 1 = cao 1. Chiều cao video sẽ tự chỉnh theo tỉ lệ video (xem script cuối) -->
+  <a-entity id="anchor" mindar-image-target="targetIndex: 0">
+    <a-video class="vid" src="#video" width="1" height="1" position="0 0 0"></a-video>
+  </a-entity>
+
+  <!-- Bản sao "khóa trong không gian", thuộc tính phải giống video ở trên -->
+  <a-entity id="lockroot" visible="false">
+    <a-video class="vid" src="#video" width="1" height="1" position="0 0 0"></a-video>
+  </a-entity>
+</a-scene>
+
+<script>
+const THREE = AFRAME.THREE;
+
+/* ====== CẤU HÌNH ====== */
+const VIDEO_WIDTH = 1.5; // 1 = rộng bằng đúng logo, 1.5 = to gấp 1,5 lần (chỉnh số này để to/nhỏ hơn)
+
+AFRAME.registerComponent('world-lock', {
+  schema: { anchor: { type: 'selector' }, root: { type: 'selector' } },
+
+  init() {
+    this.locked = false;
+    this.hasOri = false;
+    this.ori = { a: 0, b: 0, g: 0 };
+
+    this.q0 = new THREE.Quaternion();
+    this.qNow = new THREE.Quaternion();
+    this.delta = new THREE.Quaternion();
+    this.pos0 = new THREE.Vector3();
+    this.quat0 = new THREE.Quaternion();
+    this.scale0 = new THREE.Vector3(1, 1, 1);
+
+    this.euler = new THREE.Euler();
+    this.q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+    this.zee = new THREE.Vector3(0, 0, 1);
+    this.qScreen = new THREE.Quaternion();
+
+    window.addEventListener('deviceorientation', (e) => {
+      if (e.alpha === null) return;
+      this.ori.a = THREE.MathUtils.degToRad(e.alpha);
+      this.ori.b = THREE.MathUtils.degToRad(e.beta);
+      this.ori.g = THREE.MathUtils.degToRad(e.gamma);
+      this.hasOri = true;
+    });
+
+    const { anchor, root } = this.data;
+    const hint = document.getElementById('hint');
+
+    anchor.addEventListener('targetFound', () => {
+      this.locked = false;
+      root.object3D.visible = false;
+      hint.textContent = 'Đã nhận diện logo';
+    });
+
+    anchor.addEventListener('targetLost', () => {
+      if (!this.hasOri) return;
+      anchor.object3D.matrix.decompose(this.pos0, this.quat0, this.scale0);
+      this.computeDeviceQuat(this.q0);
+      this.locked = true;
+      root.object3D.visible = true;
+      hint.textContent = 'Video đã được khóa tại vị trí. Quét lại logo để cập nhật.';
+    });
+  },
+
+  computeDeviceQuat(out) {
+    const { a, b, g } = this.ori;
+    const orient = THREE.MathUtils.degToRad((screen.orientation && screen.orientation.angle) || window.orientation || 0);
+    this.euler.set(b, a, -g, 'YXZ');
+    out.setFromEuler(this.euler);
+    out.multiply(this.q1);
+    out.multiply(this.qScreen.setFromAxisAngle(this.zee, -orient));
+    return out;
+  },
+
+  tick() {
+    if (!this.locked) return;
+    this.computeDeviceQuat(this.qNow);
+    this.delta.copy(this.qNow).invert().multiply(this.q0);
+    const o = this.data.root.object3D;
+    o.position.copy(this.pos0).applyQuaternion(this.delta);
+    o.quaternion.copy(this.delta).multiply(this.quat0);
+    o.scale.copy(this.scale0);
+  }
+});
+
+// Tự chỉnh khung video theo đúng tỉ lệ file video (tránh bị méo)
+const videoEl = document.getElementById('video');
+function fitVideo() {
+  if (!videoEl.videoWidth) return;
+  const h = VIDEO_WIDTH * videoEl.videoHeight / videoEl.videoWidth;
+  document.querySelectorAll('a-video.vid').forEach(v => {
+    v.setAttribute('width', VIDEO_WIDTH);
+    v.setAttribute('height', h);
+  });
+}
+videoEl.addEventListener('loadedmetadata', fitVideo);
+if (videoEl.readyState >= 1) fitVideo();
+
+/* ====== TRẠNG THÁI VIDEO (dòng chữ vàng góc trên) ====== */
+const SHOW_DIAG = true; // đổi thành false khi đã chạy ổn để ẩn dòng chữ vàng
+const diag = document.getElementById('diag');
+if (!SHOW_DIAG) diag.style.display = 'none';
+const say = (t) => { diag.textContent = t; };
+say('Video: đang tải…');
+videoEl.addEventListener('loadedmetadata', () => say('Video: đã tải ' + videoEl.videoWidth + 'x' + videoEl.videoHeight));
+videoEl.addEventListener('playing', () => say('Video: đang phát'));
+videoEl.addEventListener('error', () => {
+  const c = videoEl.error ? videoEl.error.code : '?';
+  say('Video LỖI (mã ' + c + '): ' + (c === 4 ? 'không tìm thấy video.mp4 hoặc định dạng không hỗ trợ' : 'không tải được video'));
+});
+
+/* ====== PHÁT VIDEO ====== */
+let videoStarted = false;
+const anchorEl = document.getElementById('anchor');
+
+// Quét trúng logo lần đầu: phát video từ đầu. Sau đó KHÔNG dừng, kể cả khi mất logo.
+anchorEl.addEventListener('targetFound', () => {
+  if (!videoStarted) { videoStarted = true; videoEl.currentTime = 0; }
+  videoEl.play().catch(() => {
+    videoEl.muted = true; // phương án dự phòng: phát không tiếng
+    videoEl.play().catch(() => say('Video: chạm màn hình để phát'));
+  });
+});
+
+// Nếu iPhone vẫn chặn: chạm màn hình để phát (có tiếng)
+document.addEventListener('touchend', () => {
+  if (videoStarted && videoEl.paused) { videoEl.muted = false; videoEl.play().catch(() => {}); }
+});
+
+document.getElementById('startBtn').addEventListener('click', async () => {
+  // QUAN TRỌNG: mọi lệnh cần "cú chạm" phải gọi NGAY ĐÂY, trước khi có bất kỳ await nào,
+  // nếu không iPhone sẽ chặn phát video.
+  const permP = (typeof DeviceOrientationEvent !== 'undefined' &&
+                 typeof DeviceOrientationEvent.requestPermission === 'function')
+    ? DeviceOrientationEvent.requestPermission() : null;
+
+  // "Mở khóa" video: phát rồi dừng ngay. Sau đó video được phép tự phát khi quét trúng logo.
+  videoEl.muted = false;
+  const unlockP = videoEl.play()
+    .then(() => { videoEl.pause(); videoEl.currentTime = 0; return true; })
+    .catch(() => false);
+
+  try { if (permP) await permP; } catch (e) { console.warn('Không xin được quyền cảm biến', e); }
+  await unlockP;
+
+  document.getElementById('start').style.display = 'none';
+  const sceneEl = document.querySelector('a-scene');
+  const run = () => sceneEl.systems['mindar-image-system'].start();
+  sceneEl.hasLoaded ? run() : sceneEl.addEventListener('loaded', run);
+});
+</script>
+</body>
+</html>
